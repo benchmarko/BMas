@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title id="title">Benchmark AssemblyScript</title>
+<script type="module">
+
+
+//import { bench00, bench01, bench02 } from "./dist/release.js";
+
+
+//document.body.innerText = add(1, 2);
+
+// https://stackoverflow.com/questions/69888029/how-to-call-a-function-declared-in-a-javascript-module-type-module-from-an-htm
+
+/*
+function run_test0() {
+    const bench = 0,
+        loops = 1414,
+        n = 1000000,
+        check = ((n / 2) * (n + 1)) % 65536; // getCheck(bench, n); //((n / 2) * (n + 1)) % 65536;
+
+    const benchList0 = [bench00, bench01, bench02];
+
+    const t1 = performance.now(),
+        rc = benchList0[bench](loops, n, check),
+        t2 = performance.now(),
+        tDiff = t2 - t1;
+
+    //document.body.innerText = tDiff + " (" + rc + ")";
+    const s = tDiff + " (" + rc + ")";
+    document.getElementById("outputArea").value += s + "\n";
+}
+
+window.run_test0 = run_test0;
+*/
+
+</script>
+</head>
+
+<body>
+    <h1>Benchmark AssemblyScript</h1>
+
+    <hr />
+    <form action="">
+        <table>
+          <tr><td>bench1</td> <td><input type="text" size="4" name="bench1" value="0" /></td></tr>
+          <tr><td>bench2</td> <td><input type="text" size="4" name="bench2" value="5" /></td></tr>
+          <tr><td>n</td>      <td><input type="text" size="8" name="n" value="1000000" /></td></tr>
+        </table>
+        <input type="button" value="Start" onclick="onStartButtonClick(this.form, 0)" id="startButton" name="startButton" />
+        <input type="button" value="Stop" onclick="onStopButtonClick(this.form)" id="stopButton" name="stopButton" />
+        <input type="button" value="Clear" onclick="onClearButtonClick(this.form)" id="clearButton" name="clearButton" />
+        <br>
+        <textarea id="outputArea" name="outputArea" placeholder="Press 'Run'" cols="84" rows="20"></textarea>
+      </form>
+
+<script type="module">
+    import { bench00, bench01, bench02, bench03, bench04, bench05 } from "./dist/release.js";
+
+    var gState = {
+        prgLanguage: "AssemblyScript",
+		fnGetMs: null, // get ms, set below
+		fnGetPrecMs: function () { return performance.now(); }, // get precise ms, set below
+		startMs: null, // set later
+		bench1: 0, // bench1: first benchmark
+		bench2: 5, // bench2: last benchmark
+		n: 1000000, // n: max number
+		caliMs: 1001, // calibration ms (minimum time needed for calibration)
+		deltaMs: 100, // delta ms (maximum delta between estimation and measurement to use result)
+		maxMs: 10000, // max ms (maximum time of a single benchmark run)
+		benchRes: [], // benchmark results
+		bench: 0, // bench: current benchmark
+		tsType: "", // type of time stamp source
+		tsPrecMs: 0, // measured time stamp precision
+		tsPrecCnt: 0, // time stamp count (calls) per precision interval (until time change)
+		tsMeasCnt: 0, // last measured count
+		bWantStop: false, // set to break benchmark execution
+		fnLog: console.log, // log function, set below
+		fnDone: null, // callback when done
+		hasTimeout: typeof setTimeout !== "undefined",
+		hasUint8Array: typeof Uint8Array !== "undefined",
+		hasUint16Array: typeof Uint16Array !== "undefined"
+	};
+
+    const benchList = [bench00, bench01, bench02, bench03, bench04, bench05];
+
+    function runBench(bench, loops, n, check) {
+        const rc = benchList[bench](loops, n, check);
+        return rc;
+    }
+
+
+	// bench03 check function (used for n !== 1000000)
+function bench03Check(n) {
+	var i, j, isPrime,
+		x = 0;
+
+	n = (n / 2) | 0; // compute only up to n/2
+
+	for (j = 2; j <= n; j++) {
+		isPrime = true;
+		for (i = 2; i * i <= j; i++) {
+			if (j % i === 0) {
+				isPrime = false;
+				break;
+			}
+		}
+		if (isPrime) {
+			x++;
+		}
+	}
+	return x;
+}
+
+function getCheck(bench, n) {
+	var check;
+
+	switch (bench) {
+	case 0:
+		check = ((n / 2) * (n + 1)) % 65536; // NGS: cannot use "& 0xffff" here because it would use integer then
+		break;
+
+	case 1:
+		check = ((n + 1) / 2) | 0;
+		break;
+
+	case 2:
+		check = ((n + 1) / 2) | 0;
+		break;
+
+	case 3:
+		check = (n === 1000000) ? 41538 : bench03Check(n);
+		break;
+
+	case 4:
+		check = (n === 1000000) ? 1227283347 : bench04(1, n, 0); // bench04 not a real check
+		break;
+
+	case 5:
+		check = (n === 1000000) ? 27200 : bench05(1, n, 0); // bench05 not a real check
+		break;
+
+	default:
+		//gState.fnLog("Error: Unknown benchmark " + bench);
+		check = -1;
+		break;
+	}
+	return check;
+}
+
+
+function strNumFormat(s, iLen, sFillChar) {
+	var i;
+
+	s = String(s);
+	for (i = s.length; i < iLen; i++) {
+		s = sFillChar + s;
+	}
+	return s;
+}
+
+function strZeroFormat(s, iLen) {
+	return strNumFormat(s, iLen, "0");
+}
+
+
+function strIntFormat(val, digits) {
+	var str = strNumFormat(val, digits, " ");
+
+	return str;
+}
+
+function strDoubleFormat(val, digits, prec) {
+	var str = "", // buffer for one formatted value
+		displPrecAfter = Math.pow(10, prec), // display precision after decimal point
+		dotPos, count;
+
+	str += String(Math.round(val * displPrecAfter) / displPrecAfter);
+
+	dotPos = str.indexOf(".");
+	// integers do not have a dot yet...
+	if (dotPos < 0) {
+		dotPos = str.length;
+		str += ".";
+	}
+
+	// format to prec digits after comma, beware of exponential numbers, e.g. 1e+23!
+	count = prec + 1 - (str.length - dotPos);
+	while (count > 0) {
+		str += "0";
+		count--;
+	}
+
+	str = strNumFormat(str, digits, " ");
+	return str;
+}
+
+
+    function measureBench(bench, n, check) {
+	var fnGetPrecMs = gState.fnGetPrecMs,
+		caliMs = gState.caliMs, // 1001
+		deltaMs = gState.deltaMs, // 100
+		maxMs = gState.maxMs, // 10000
+
+		loops = 1, // number of loops
+		tMeas, // measured time
+		tEsti = 0, // estimated time
+		throughput = 0,
+		x, // result from benchmark
+		tDelta, loopsPerSec, scaleFact;
+
+	gState.fnLog("Calibrating benchmark " + bench + " with n=" + n + ", check=" + check);
+
+	while (!throughput && !gState.bWantStop) {
+		tMeas = fnGetPrecMs(); // start measurement when time changes
+		x = runBench(bench, loops, n, check);
+		tMeas = fnGetPrecMs(1) - tMeas; // stop measurement and count until time changes
+
+		tDelta = (tEsti > tMeas) ? (tEsti - tMeas) : (tMeas - tEsti); // compute difference abs(measures-estimated)
+		loopsPerSec = (tMeas > 0) ? (loops * 1000.0 / tMeas) : 0;
+		gState.fnLog(strDoubleFormat(loopsPerSec, 10, 3) + "/s (time=" + strDoubleFormat(tMeas, 9, 3) + " ms, loops=" + strIntFormat(loops, 7) + ", delta=" + strDoubleFormat(tDelta, 9, 3) + " ms)");
+		//TTT gState.fnLog(strDoubleFormat(loopsPerSec, 10, 3) + " loops/s (" + strIntFormat(loops, 7) + " /" + strDoubleFormat(tMeas, 9, 3) + " ms) (delta=" + strDoubleFormat(tDelta, 9, 3) + " ms, x=" + x + ")");
+
+		if (x === -1) { // some error?
+			throughput = -1;
+		} else if ((tEsti > 0) && (tDelta < deltaMs)) { // estimated time already? smaller than delta_ms=100?
+			throughput = loopsPerSec; // yeah, set measured loops per sec
+			gState.fnLog("Benchmark " + bench + " (" + gState.prgLanguage + "): " + strDoubleFormat(loopsPerSec, 0, 3) + "/s (time=" + strDoubleFormat(tMeas, 0, 3) + " ms, loops=" + loops + ", delta=" + strDoubleFormat(tDelta, 0, 3) + " ms)");
+		} else if (tMeas > maxMs) {
+			gState.fnLog("Benchmark " + bench + " (" + gState.prgLanguage + "): Time already > " + maxMs + " ms. No measurement possible.");
+			throughput = (loopsPerSec) ? -loopsPerSec : -1; // cannot rely on measurement, so set to negative
+		} else {
+			if (tMeas === 0) {
+				scaleFact = 50;
+			} else if (tMeas < caliMs) {
+				scaleFact = (((caliMs + 100) / tMeas) | 0) + 1; // scale a bit up to 1100 ms (cali_ms+100)
+			} else {
+				scaleFact = 2;
+			}
+			loops *= scaleFact;
+			tEsti = tMeas * scaleFact;
+		}
+	}
+	return throughput;
+}
+
+
+function printResults(bench1, bench2, benchRes) {
+	var maxLanguageLen = 10,
+		str,
+		i,
+		bench;
+
+	str = "\nThroughput for all benchmarks (loops per sec):\nBMR (" + gState.prgLanguage + ")";
+	for (i = gState.prgLanguage.length; i < maxLanguageLen; i++) {
+		str += " ";
+	}
+	str += ": ";
+
+	for (bench = bench1; bench <= bench2; bench++) {
+		str += strDoubleFormat(benchRes[bench], 9, 3) + " ";
+	}
+	gState.fnLog(str + "\n");
+}
+
+function endBench(startMs) {
+	printResults(gState.bench1, gState.bench2, gState.benchRes);
+	gState.fnLog("Total elapsed time: " + (gState.fnGetMs() - startMs) + " ms");
+	if (gState.fnDone) {
+		gState.fnDone();
+	}
+}
+
+function fnSetTimeout(func, time) {
+	if (gState.hasTimeout) {
+		setTimeout(func, time);
+	} else {
+		func(); // call it directly
+	}
+}
+
+
+function doBench() {
+	var bench = gState.bench,
+		n, scaleN, check, rc;
+
+	n = gState.n; //determineProblemSizeN(bench, gState.n);
+	scaleN = gState.n / n;
+	check = getCheck(bench, n);
+	if (check > 0) {
+		rc = measureBench(bench, n, check);
+		rc /= scaleN;
+		if (scaleN !== 1) {
+			gState.fnLog("Note: Result scaled by factor " + scaleN + " to " + rc);
+		}
+	} else {
+		rc = -1;
+	}
+	gState.benchRes[bench] = rc;
+	bench++;
+	if (bench <= gState.bench2 && !gState.bWantStop) {
+		gState.bench = bench;
+		fnSetTimeout(doBench, 1); //TTT
+	} else {
+		endBench(gState.startMs);
+	}
+}
+
+function startBench(oArgs) {
+	var sKey;
+
+	if (!oArgs) {
+		gState.fnLog("DEBUG: startBench: No args.");
+		return;
+	}
+
+	for (sKey in oArgs) {
+		if (!oArgs.hasOwnProperty || oArgs.hasOwnProperty(sKey)) {
+			gState[sKey] = oArgs[sKey];
+		}
+	}
+
+    gState.fnGetMs = gState.fnGetPrecMs;
+    gState.startMs = gState.fnGetMs(); // memorize start time
+	//determineTsPrecision();
+	//gState.fnLog(getInfo());
+
+	gState.bench = gState.bench1;
+	gState.benchRes = [];
+
+	fnSetTimeout(doBench, 1);
+}
+
+window.gState = gState; // fast hack
+window.startBench = startBench;
+</script>
+
+//
+
+<script>
+
+function setDisabled(id, disabled) {
+	var element = window.document.getElementById(id);
+
+	element.disabled = disabled;
+}
+
+function fnLog(s) {
+	gState.outputArea.value += s + "\n";
+	if (typeof console !== "undefined") { // special care for IE
+		console.log(s); // eslint-disable-line no-console
+	}
+}
+
+function fnDone() {
+	if (typeof console !== "undefined") { // special care for IE
+		console.log("DEBUG: benchmark done"); // eslint-disable-line no-console
+	}
+	setDisabled("startButton", false);
+	setDisabled("stopButton", true);
+	setDisabled("clearButton", false);
+}
+
+
+function onStartButtonClick(frm) { // eslint-disable-line no-unused-vars
+	var options = {
+		bench1: Number(frm.bench1.value),
+		bench2: Number(frm.bench2.value),
+		n: Number(frm.n.value),
+		outputArea: frm.outputArea,
+		bWantStop: false,
+		fnLog: fnLog,
+		fnDone: fnDone
+	};
+
+	//frm.outputArea.value = "";
+	setDisabled("startButton", true);
+	setDisabled("stopButton", false);
+	setDisabled("clearButton", true);
+
+	return startBench(options);
+}
+
+function onStopButtonClick(frm) { // eslint-disable-line no-unused-vars
+	gState.bWantStop = true;
+	setDisabled("stopButton", true);
+}
+
+function onClearButtonClick(frm) { // eslint-disable-line no-unused-vars
+	frm.outputArea.value = "";
+}
+
+
+function onLoad() {
+	if (typeof console !== "undefined") { // special care for IE
+		console.log("DEBUG: onLoad"); // eslint-disable-line no-console
+	}
+	setDisabled("stopButton", true);
+}
+
+window.onload = onLoad;
+</script>
+
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title id="title">Compare AssemblyScript and JavaScript</title>
+<script type="module">
+import { bench00 } from "./dist/release.js";
+
+//
+// bench00 (Integer 16 bit)
+// (sum of 1..n) % 65536
+//
+function bench00_js(loops, n, check) {
+	var x = 0,
+		nDiv65536 = (n >> 16),
+		nMod65536 = (n & 0xffff),
+		i, j;
+
+	while (loops-- > 0 && x === 0) {
+		for (i = nDiv65536; i > 0; i--) {
+			for (j = 32767; j > 0; j--) {
+				x += j;
+			}
+			for (j = -32768; j < 0; j++) {
+				x += j;
+			}
+		}
+		for (j = nMod65536; j > 0; j--) {
+			x += j;
+		}
+		x &= 0xffff;
+		x -= check;
+	}
+	return x & 0xffff;
+}
+
+
+function run_test0(benchList0) {
+    const bench = 0,
+        loops = 1500,
+        n = 1000000,
+        check = ((n / 2) * (n + 1)) % 65536; // getCheck(bench, n); //((n / 2) * (n + 1)) % 65536;
+
+    //const benchList0 = [bench00, bench01, bench02];
+    //const benchList0 = [bench00];
+
+    const t1 = performance.now(),
+        rc = benchList0[bench](loops, n, check),
+        t2 = performance.now(),
+        tDiff = t2 - t1;
+    
+    const s = tDiff + " (" + rc + ")";
+	return s;
+}
+
+function do_tests() {
+	document.body.innerText += "bench00_was: " + run_test0([bench00]) + "\n";
+	document.body.innerText += "bench00_js:  " + run_test0([bench00_js]) + "\n";
+
+	window.setTimeout(window.do_tests, 5000);
+}
+
+window.do_tests = do_tests;
+do_tests();
+
+
+</script>
+
+</head>
+
+<body></body>
+</html>
